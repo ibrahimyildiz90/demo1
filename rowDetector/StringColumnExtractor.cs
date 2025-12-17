@@ -15,62 +15,84 @@ namespace rowDetector
          * - Çok satırlı "İşlem Türü" gibi alanları üretir
          */
         public static string? Extract(
-            RowCandidate selectedRow,
-            List<List<PdfWordModel>> allLines,
-            HeaderDetectionResult headerResult,
-            ColumnDefinition columnDefinition,
-            int maxLineDistance = 5)
+       RowCandidate dataRow,
+       List<List<PdfWordModel>> allLines,
+       HeaderDetectionResult headerResult,
+       ColumnDefinition stringColumn,
+       SectionBounds sectionBounds)
         {
-            // Sadece STRING kolonlar
-            if (columnDefinition.ValueType != ColumnValueType.String)
-                return null;
+            // 1️⃣ İlgili kolon
+            var column = headerResult.Columns
+                .First(c => c.HeaderText == stringColumn.HeaderText);
 
-            var column = headerResult.Columns.FirstOrDefault(c =>
-                c.HeaderText.Equals(columnDefinition.HeaderText,
-                    StringComparison.OrdinalIgnoreCase));
+            // 2️⃣ Data row Y
+            double dataRowY = dataRow.Line.Average(w => w.Y);
 
-            if (column == null)
-                return null;
-
-            // Data row’un merkez Y noktası
-            double baseY = selectedRow.Line.Average(w => w.Y);
+            // 3️⃣ HEADER Y (KRİTİK)
+            double headerY = headerResult.HeaderLine.Average(w => w.Y);
 
             var collectedWords = new List<PdfWordModel>();
 
-            foreach (var line in allLines)
+            // 4️⃣ Section içindeki satırları yukarıdan aşağı gez
+            foreach (var line in allLines
+                .Where(l => sectionBounds.Contains(l))
+                .OrderByDescending(l => l.Average(w => w.Y)))
             {
                 double lineY = line.Average(w => w.Y);
 
-                // Data row etrafında belirli mesafede mi? Row sayısı 12
-                if (Math.Abs(lineY - baseY) > maxLineDistance * 12)
+                // ⛔ HEADER ÜSTÜ (FORM AÇIKLAMALARI)
+                if (lineY > headerY)
                     continue;
 
-                // Kolon X aralığında mı?
-                var wordsInColumn = line.Where(w =>
-                    w.X >= column.XStart &&
-                    w.X <= column.XEnd)
-                    .ToList();
+                // ⛔ ALTTA YENİ DATA ROW BAŞLADIYSA DUR
+                if (lineY < dataRowY &&
+                    IsDataLikeLine(line, headerResult))
+                    break;
 
-                if (!wordsInColumn.Any())
-                    continue;
+                // 🎯 HEADER ile DATA ROW ARASI
+                if (lineY <= headerY && lineY >= dataRowY - 2)
+                {
+                    var wordsInColumn = line
+                        .Where(w =>
+                            w.X >= column.XStart &&
+                            w.X <= column.XEnd &&
+                            !ValueTypeChecker.IsValid(w.Text, ColumnValueType.Decimal) &&
+                            !ValueTypeChecker.IsValid(w.Text, ColumnValueType.Percentage))
+                        .ToList();
 
-                // Header satırını alma
-                if (line.Max(w => w.Y) >= headerResult.HeaderBottomY)
-                    continue;
-
-                collectedWords.AddRange(wordsInColumn);
+                    collectedWords.AddRange(wordsInColumn);
+                }
             }
 
             if (!collectedWords.Any())
                 return null;
 
-            // Okuma sırasına sok
-            var ordered = collectedWords
+            collectedWords = collectedWords
                 .OrderByDescending(w => w.Y)
                 .ThenBy(w => w.X)
                 .ToList();
 
-            return PdfLayoutHelper.LineText(ordered);
+            return string.Join(" ", collectedWords.Select(w => w.Text));
+        }
+
+
+
+        private static bool IsDataLikeLine(
+    List<PdfWordModel> line,
+    HeaderDetectionResult headerResult)
+        {
+            int numericCount = 0;
+
+            foreach (var col in headerResult.Columns)
+            {
+                var value = GridValueExtractor.Extract(line, col);
+
+                if (!string.IsNullOrWhiteSpace(value))
+                    numericCount++;
+            }
+
+            // En az 2 kolon doluysa bu bir DATA ROW’dur
+            return numericCount >= 2;
         }
     }
 }

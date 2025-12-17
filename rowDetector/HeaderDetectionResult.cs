@@ -23,6 +23,8 @@ namespace rowDetector
         /// </summary>
         public double HeaderY { get; set; }
 
+        public List<PdfWordModel> HeaderLine { get; set; } = new();
+
         /// <summary>
         /// Header tespitinin güven skoru (opsiyonel, ileride false-positive elemek için).
         /// Şimdilik 0–1 arası normalize bir değer olarak bırakıldı.

@@ -30,4 +30,50 @@
             return y < TopY && y > BottomY;
         }
     }
+
+    public static class SectionDetector
+    {
+        public static SectionBounds DetectSectionBounds(
+            List<List<PdfWordModel>> lines,
+            string sectionText)
+        {
+            // normalize arama
+            string Normalize(string s) => string.Concat(
+                s.ToUpperInvariant()
+                 .Where(c => !char.IsWhiteSpace(c)));
+
+            var target = Normalize(sectionText);
+
+            double? foundY = null;
+
+            foreach (var line in lines)
+            {
+                var text = PdfLayoutHelper.LineText(line);
+                if (Normalize(text).Contains(target))
+                {
+                    foundY = line.Average(w => w.Y);
+                    break;
+                }
+            }
+
+            if (foundY == null)
+                throw new Exception("Section header bulunamadı: " + sectionText);
+
+            // Aşağıdaki satırları section içinde tut
+            double topY = foundY.Value;
+
+            // section alt sınırı = bir sonraki büyük düşüş
+            double bottomY = lines
+                .Where(l => l.Average(w => w.Y) < topY)
+                .Select(l => l.Average(w => w.Y))
+                .DefaultIfEmpty(0)
+                .Min();
+
+            return new SectionBounds
+            {
+                TopY = topY,
+                BottomY = bottomY
+            };
+        }
+    }
 }

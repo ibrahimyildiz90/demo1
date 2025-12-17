@@ -25,24 +25,53 @@
             };
 
             // --------------------------------------------------
-            // 3️⃣ HEADER + KOLONLARI TESPİT ET
+            // 4️⃣ EN İYİ DATA ROW’U BUL
             // --------------------------------------------------
 
-            HeaderDetectionResult headerResult;
+            string sectionText = "KISMİ TEVKİFAT UYGULANAN İŞLEMLER";
 
-            try
+            var sectionBounds = SectionDetector.DetectSectionBounds(
+                lines,
+                sectionText
+            );
+
+            // bu satır header’ı sadece o section içinde arar
+            var headerResult = TableHeaderDetector.DetectHeader(
+                lines,
+                columnDefinitions,
+                sectionBounds);
+
+            // şimdi sadece o section’a ait satırlar taranır
+            var bestRow = DataRowDetector.DetectBestDataRow(
+                lines,
+                headerResult,
+                columnDefinitions,
+                sectionBounds);
+
+
+            var islemTuruDef = columnDefinitions
+                .First(d => d.HeaderText == "İşlem Türü");
+
+            var jsonlines = System.Text.Json.JsonSerializer.Serialize(lines, new System.Text.Json.JsonSerializerOptions
             {
-                headerResult = TableHeaderDetector.DetectHeader(
-                    lines,
-                    columnDefinitions
-                );
-            }
-            catch (Exception ex)
+                WriteIndented = true
+            });
+
+            var jsonbestRow = System.Text.Json.JsonSerializer.Serialize(bestRow, new System.Text.Json.JsonSerializerOptions
             {
-                Console.WriteLine("❌ Header bulunamadı:");
-                Console.WriteLine(ex.Message);
-                return;
-            }
+                WriteIndented = true
+            });
+
+            var islemTuru = StringColumnExtractor.Extract(
+                bestRow,
+                lines,
+                headerResult,
+                islemTuruDef,
+                sectionBounds);
+
+            Console.WriteLine("İşlem Türü:");
+            Console.WriteLine(islemTuru);
+
 
             // Debug – kolonları yazdır
             Console.WriteLine("---- COLUMNS ----");
@@ -52,38 +81,6 @@
                     $"{col.HeaderText} | XStart={col.XStart:F1} XEnd={col.XEnd:F1}");
             }
 
-            // --------------------------------------------------
-            // 4️⃣ EN İYİ DATA ROW’U BUL
-            // --------------------------------------------------
-
-         
-
-            var sectionBounds = TableSectionDetector.DetectSectionBounds(lines, "KISMİ TEVKİFAT UYGULANAN İŞLEMLER");
-
-            var bestRow = DataRowDetector.DetectBestDataRow(
-             lines,
-             headerResult,
-             columnDefinitions,
-             sectionBounds);
-
-
-            if (bestRow == null)
-            {
-                Console.WriteLine("❌ Uygun data row bulunamadı.");
-                return;
-            }
-
-            var islemTuruDef = columnDefinitions
-                .First(d => d.HeaderText == "İşlem Türü");
-
-            var islemTuru = StringColumnExtractor.Extract(
-                bestRow,
-                lines,
-                headerResult,
-                islemTuruDef);
-
-            Console.WriteLine("İşlem Türü:");
-            Console.WriteLine(islemTuru);
 
             // --------------------------------------------------
             // 5️⃣ SONUÇ

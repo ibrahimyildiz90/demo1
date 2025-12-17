@@ -18,32 +18,29 @@ namespace rowDetector
      List<List<PdfWordModel>> lines,
      HeaderDetectionResult headerResult,
      List<ColumnDefinition> columnDefinitions,
-     SectionBounds? sectionBounds)
+     SectionBounds sectionBounds)
         {
             var candidates = new List<RowCandidate>();
 
             foreach (var line in lines)
             {
-                // 1️⃣ Section filtresi (EN ÜST SEVİYE KURAL)
-                if (sectionBounds != null && !sectionBounds.Contains(line))
+                // sadece ilgili section içindeki satırlar
+                if (!sectionBounds.Contains(line))
                     continue;
 
-                // 2️⃣ Header ve üstünü alma
+                // header altı
                 if (line.Max(w => w.Y) >= headerResult.HeaderBottomY)
                     continue;
 
-                // 3️⃣ Satır gerçekten tablo satırı mı?
                 if (!IsRowStarter(line, headerResult.Columns, columnDefinitions))
                     continue;
 
-                // 4️⃣ Satırı değerlendir
                 var candidate = EvaluateLine(line, headerResult, columnDefinitions);
 
                 if (candidate != null)
                     candidates.Add(candidate);
             }
 
-            // 5️⃣ En güvenilir satırı seç
             return candidates
                 .OrderByDescending(c => c.Confidence)
                 .FirstOrDefault();

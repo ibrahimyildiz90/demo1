@@ -10,11 +10,12 @@ namespace rowDetector
          * Matrah | KDV Oranı | Vergi” satırını bulur
          * Kolonların X aralıklarını çıkarır*/
         public static HeaderDetectionResult DetectHeader(
-       List<List<PdfWordModel>> lines,
-       List<ColumnDefinition> columnDefinitions)
+            List<List<PdfWordModel>> lines,
+            List<ColumnDefinition> columnDefinitions,
+            SectionBounds sectionBounds)
         {
             // 1️⃣ Header satırını bul
-            var headerLine = FindHeaderLine(lines, columnDefinitions);
+            var headerLine = FindHeaderLine(lines, columnDefinitions, sectionBounds);
 
             if (headerLine == null)
                 throw new Exception("Header satırı bulunamadı.");
@@ -28,7 +29,8 @@ namespace rowDetector
             return new HeaderDetectionResult
             {
                 Columns = columns,
-                HeaderBottomY = headerBottomY
+                HeaderBottomY = headerBottomY,
+                HeaderLine = headerLine
             };
         }
 
@@ -75,22 +77,25 @@ Contains bazlı eşleşme
          */
         private static List<PdfWordModel>? FindHeaderLine(
             List<List<PdfWordModel>> lines,
-            List<ColumnDefinition> columnDefinitions)
+            List<ColumnDefinition> columnDefinitions,
+            SectionBounds sectionBounds)
         {
             foreach (var line in lines)
             {
-                var lineText = PdfLayoutHelper.LineText(line);
+                if (!sectionBounds.Contains(line))
+                    continue;
+
+                var text = PdfLayoutHelper.LineText(line);
 
                 int matchCount = columnDefinitions.Count(cd =>
-                    lineText.Contains(cd.HeaderText, StringComparison.OrdinalIgnoreCase));
+                    text.Contains(cd.HeaderText, StringComparison.OrdinalIgnoreCase));
 
-                // En az 2 header eşleşiyorsa bu satır header’dır
-                if (matchCount >= 2)
+                if (matchCount >= 3)
                     return line;
             }
-
             return null;
         }
+
 
         /*
          * Kolonların X Aralıkları Nasıl Çıkıyor
