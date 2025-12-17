@@ -1,77 +1,145 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Runtime.Intrinsics.X86;
-using System.Text;
+using System.Linq;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace rowDetector
 {
-    public class DataRowDetector
+    public static class DataRowDetector
     {
-        /* 
-         Bir satır data row ise:
-        Header’ın altında
-        En az N adet numeric alan içerir
-        Kolon X aralıklarıyla örtüşür
-        Açıklama satırı değildir 
-        */
-        public static List<RowCandidate> DetectDataRows(
-        List<List<PdfWordModel>> lines,
-        HeaderDetectionResult headerResult,
-        List<ColumnDefinition> columnDefinitions)
+        /*
+         * GÖREVİ:
+         * - Header altındaki TÜM satırları tarar
+         * - Her satırı kolon tanımlarına göre puanlar
+         * - Aynı PDF’te birden fazla tablo olsa bile
+         *   EN UYUMLU (confidence’ı en yüksek) satırı seçer
+         */
+        public static RowCandidate? DetectBestDataRow(
+            List<List<PdfWordModel>> lines,
+            HeaderDetectionResult headerResult,
+            List<ColumnDefinition> columnDefinitions)
         {
             var candidates = new List<RowCandidate>();
 
-            var possibleLines = lines
-                .Where(l => l.First().Y < headerResult.HeaderBottomY)
-                .OrderByDescending(l => l.First().Y);
-
-            foreach (var line in possibleLines)
+            foreach (var line in lines)
             {
-                var candidate = new RowCandidate { Line = line };
+                // Header üstünü alma
+                if (line.Max(w => w.Y) >= headerResult.HeaderBottomY)
+                    continue;
 
-                int validValueCount = 0;
-                double confidence = 0;
+                if (!IsRowStarter(line, headerResult.Columns, columnDefinitions))
+                    continue;
 
-                for (int i = 0; i < headerResult.Columns.Count; i++)
-                {
-                    var column = headerResult.Columns[i];
-                    var def = columnDefinitions[i];
+                var candidate = EvaluateLine(line, headerResult, columnDefinitions);
 
-                    var raw = GridValueExtractor.Extract(line, column);
-
-                    if (ValueTypeChecker.IsValid(raw, def.ValueType))
-                    {
-                        validValueCount++;
-                        candidate.ValuesByColumn[i] = raw;
-
-                        // confidence katkısı
-                        confidence += GetConfidenceWeight(def.ValueType, raw);
-                    }
-                }
-
-                // en az 2 kolon dolu olmalı
-                if (validValueCount >= 2)
-                {
-                    candidate.Confidence = confidence;
+                if (candidate != null)
                     candidates.Add(candidate);
-                }
             }
 
-            return candidates;
+            return candidates
+                .OrderByDescending(c => c.Confidence)
+                .FirstOrDefault();
         }
+
+        // ------------------------------------------------------
+
+        private static RowCandidate? EvaluateLine(
+            List<PdfWordModel> line,
+            HeaderDetectionResult headerResult,
+            List<ColumnDefinition> columnDefinitions)
+        {
+            int validColumnCount = 0;
+            double confidence = 0;
+
+            var values = new Dictionary<string, string>();
+
+            foreach (var column in headerResult.Columns)
+            {
+                // HeaderText bazlı eşleşme (KRİTİK)
+                var def = columnDefinitions.FirstOrDefault(d =>
+                    d.HeaderText.Equals(column.HeaderText,
+                        StringComparison.OrdinalIgnoreCase));
+
+                if (def == null)
+                    continue;
+
+                if (def.ValueType == ColumnValueType.String)
+                    continue; // 🔴 KRİTİK Artık: EvaluateLine = sadece numeric kolonlar String kolonlar data row seçimini etkilemez
+
+                var rawValue = GridValueExtractor.Extract(line, column);
+
+                if (string.IsNullOrWhiteSpace(rawValue))
+                    continue;
+
+                if (!ValueTypeChecker.IsValid(rawValue, def.ValueType))
+                    continue;
+
+                validColumnCount++;
+                values[column.HeaderText] = rawValue;
+
+                confidence += GetConfidenceWeight(def.ValueType, rawValue);
+            }
+
+            // En az 2 numeric kolon dolu mu
+            if (validColumnCount < 2)
+                return null;
+
+            return new RowCandidate
+            {
+                Line = line,
+                ValuesByColumn = values,
+                Confidence = confidence
+            };
+        }
+
+        // ------------------------------------------------------
 
         private static double GetConfidenceWeight(
             ColumnValueType type,
             string value)
         {
-            return type switch
+            switch (type)
             {
-                ColumnValueType.Percentage when value.Length <= 3 => 2.0, // 20 gibi
-                ColumnValueType.Decimal when value.Contains(",") => 1.5,
-                ColumnValueType.Integer => 1.0,
-                _ => 0.5
-            };
-        }
-    }
+                case ColumnValueType.Decimal:
+                    return 3.0;
 
+                case ColumnValueType.Percentage:
+                    return value.Contains("%") || value.Length <= 3 ? 2.5 : 1.5;
+
+                case ColumnValueType.String:
+                    return value.Length > 3 ? 1.5 : 0.5;
+
+                case ColumnValueType.Date:
+                    return 2.0;
+
+                default:
+                    return 1.0;
+            }
+        }
+
+        private static bool IsRowStarter(
+            List<PdfWordModel> line,
+            List<TableColumn> columns,
+            List<ColumnDefinition> definitions)
+        {
+            int numericCount = 0;
+
+            foreach (var col in columns)
+            {
+                var def = definitions.First(d => d.HeaderText == col.HeaderText);
+
+                if (def.ValueType == ColumnValueType.Decimal ||
+                    def.ValueType == ColumnValueType.Percentage)
+                {
+                    var value = GridValueExtractor.Extract(line, col);
+
+                    if (!string.IsNullOrWhiteSpace(value))
+                        numericCount++;
+                }
+            }
+
+            return numericCount >= 2; // 🔴 KRİTİK KURAL
+        }
+
+    }
 }
