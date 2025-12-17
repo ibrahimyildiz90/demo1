@@ -56,11 +56,16 @@
             // 4️⃣ EN İYİ DATA ROW’U BUL
             // --------------------------------------------------
 
+         
+
+            var sectionBounds = TableSectionDetector.DetectSectionBounds(lines, "KISMİ TEVKİFAT UYGULANAN İŞLEMLER");
+
             var bestRow = DataRowDetector.DetectBestDataRow(
-                lines,
-                headerResult,
-                columnDefinitions
-            );
+             lines,
+             headerResult,
+             columnDefinitions,
+             sectionBounds);
+
 
             if (bestRow == null)
             {
