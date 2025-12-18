@@ -15,11 +15,11 @@ namespace rowDetector
          * - Çok satırlı "İşlem Türü" gibi alanları üretir
          */
         public static string? Extract(
-       RowCandidate dataRow,
-       List<List<PdfWordModel>> allLines,
-       HeaderDetectionResult headerResult,
-       ColumnDefinition stringColumn,
-       SectionBounds sectionBounds)
+    RowCandidate dataRow,
+    List<List<PdfWordModel>> allLines,
+    HeaderDetectionResult headerResult,
+    ColumnDefinition stringColumn,
+    SectionBounds sectionBounds)
         {
             // 1️⃣ İlgili kolon
             var column = headerResult.Columns
@@ -28,45 +28,58 @@ namespace rowDetector
             // 2️⃣ Data row Y
             double dataRowY = dataRow.Line.Average(w => w.Y);
 
-            // 3️⃣ HEADER Y (KRİTİK)
+            // 3️⃣ Header Y (üst sınır)
             double headerY = headerResult.HeaderLine.Average(w => w.Y);
 
             var collectedWords = new List<PdfWordModel>();
+            bool startedCollecting = false;
 
-            // 4️⃣ Section içindeki satırları yukarıdan aşağı gez
+            // 4️⃣ Section içindeki satırları DATA ROW'DAN YUKARI doğru tara
             foreach (var line in allLines
                 .Where(l => sectionBounds.Contains(l))
                 .OrderByDescending(l => l.Average(w => w.Y)))
             {
                 double lineY = line.Average(w => w.Y);
 
-                // ⛔ HEADER ÜSTÜ (FORM AÇIKLAMALARI)
+                // Header üstüne çıkma (form açıklamaları)
                 if (lineY > headerY)
                     continue;
 
-                // ⛔ ALTTA YENİ DATA ROW BAŞLADIYSA DUR
-                if (lineY < dataRowY &&
-                    IsDataLikeLine(line, headerResult))
+                // Data row’un ALTINI alma
+                if (lineY >= dataRowY)
+                    continue;
+
+                // Yeni bir data row başladıysa ve biz zaten topladıysak → DUR
+                if (startedCollecting && IsDataLikeLine(line, headerResult))
                     break;
 
-                // 🎯 HEADER ile DATA ROW ARASI
-                if (lineY <= headerY && lineY >= dataRowY - 2)
-                {
-                    var wordsInColumn = line
-                        .Where(w =>
-                            w.X >= column.XStart &&
-                            w.X <= column.XEnd &&
-                            !ValueTypeChecker.IsValid(w.Text, ColumnValueType.Decimal) &&
-                            !ValueTypeChecker.IsValid(w.Text, ColumnValueType.Percentage))
-                        .ToList();
+                // 🎯 Aynı kolon X aralığındaki STRING kelimeler
+                var wordsInColumn = line
+                    .Where(w =>
+                        w.X >= column.XStart &&
+                        w.X <= column.XEnd &&
+                        !ValueTypeChecker.IsValid(w.Text, ColumnValueType.Decimal) &&
+                        !ValueTypeChecker.IsValid(w.Text, ColumnValueType.Percentage))
+                    .ToList();
 
-                    collectedWords.AddRange(wordsInColumn);
+                if (!wordsInColumn.Any())
+                {
+                    // Eğer toplamaya başladıysak ve bu satır boşsa → blok bitti
+                    if (startedCollecting)
+                        break;
+
+                    continue;
                 }
+
+                // İlk anlamlı string satırı bulduk
+                startedCollecting = true;
+                collectedWords.AddRange(wordsInColumn);
             }
 
             if (!collectedWords.Any())
                 return null;
 
+            // 5️⃣ Okunabilir sıraya koy
             collectedWords = collectedWords
                 .OrderByDescending(w => w.Y)
                 .ThenBy(w => w.X)
@@ -74,6 +87,7 @@ namespace rowDetector
 
             return string.Join(" ", collectedWords.Select(w => w.Text));
         }
+
 
 
 
